@@ -1,0 +1,1132 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import requests
+import json
+import sqlite3
+import os
+from datetime import datetime, timedelta
+import hashlib
+import pickle
+
+app = Flask(__name__)
+CORS(app, 
+     origins=[
+         "https://vichaar-kappa.vercel.app",
+         "https://vichaar-g05ubfbf0-kalki2898ads-projects.vercel.app",
+         "http://localhost:3000",
+         "http://localhost:3001"
+     ],
+     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+     supports_credentials=False)  # Enable CORS for all routes
+
+# 🚀 CACHING SYSTEM - Reduce Egress & Improve Performance
+# 
+# Cache Strategy:
+# - Student Profile: 5 months (college updates every 5 months)
+# - Timetable: 5 months (college updates every 5 months)  
+# - Results: 12 hours (moderate frequency updates)
+# - Notices: 2 hours (frequent updates)
+# - Search: 1 hour (very frequent)
+# - Attendance: NO CACHING (faculty updates frequently)
+#
+class APICache:
+    def __init__(self):
+        self.cache = {}
+        self.ttl = {
+            'student_profile': 5 * 30 * 24 * 60 * 60,  # 5 months (150 days)
+            'attendance': 0,                             # No caching for attendance (always fresh)
+            'results': 12 * 60 * 60,                    # 12 hours
+            'timetable': 5 * 30 * 24 * 60 * 60,        # 5 months (150 days)
+            'notices': 2 * 60 * 60,                     # 2 hours
+            'search': 1 * 60 * 60                       # 1 hour
+        }
+    
+    def _generate_key(self, endpoint: str, params: dict = None) -> str:
+        """Generate cache key from endpoint and parameters"""
+        key_data = f"{endpoint}"
+        if params:
+            # Sort params for consistent key generation
+            sorted_params = sorted(params.items())
+            key_data += str(sorted_params)
+        return hashlib.md5(key_data.encode()).hexdigest()
+    
+    def get(self, endpoint: str, params: dict = None):
+        """Get cached data if valid"""
+        key = self._generate_key(endpoint, params)
+        if key in self.cache:
+            cached_data = self.cache[key]
+            if datetime.now().timestamp() < cached_data['expires_at']:
+                print(f"🎯 Cache HIT for {endpoint}")
+                return cached_data['data']
+            else:
+                # Expired, remove from cache
+                del self.cache[key]
+                print(f"⏰ Cache EXPIRED for {endpoint}")
+        return None
+    
+    def set(self, endpoint: str, data, cache_type: str = 'default', params: dict = None):
+        """Cache data with appropriate TTL"""
+        key = self._generate_key(endpoint, params)
+        ttl_seconds = self.ttl.get(cache_type, 3600)  # Default 1 hour
+        
+        self.cache[key] = {
+            'data': data,
+            'expires_at': datetime.now().timestamp() + ttl_seconds,
+            'cache_type': cache_type,
+            'cached_at': datetime.now().isoformat()
+        }
+        print(f"💾 Cached {endpoint} ({cache_type}) for {ttl_seconds//3600}h")
+    
+    def clear_expired(self):
+        """Remove expired cache entries"""
+        current_time = datetime.now().timestamp()
+        expired_keys = [key for key, value in self.cache.items() 
+                       if current_time >= value['expires_at']]
+        for key in expired_keys:
+            del self.cache[key]
+        if expired_keys:
+            print(f"🧹 Cleaned {len(expired_keys)} expired cache entries")
+    
+    def get_stats(self):
+        """Get cache statistics"""
+        current_time = datetime.now().timestamp()
+        valid = sum(1 for v in self.cache.values() 
+                   if current_time < v['expires_at'])
+        expired = len(self.cache) - valid
+        return {
+            'total': len(self.cache),
+            'valid': valid,
+            'expired': expired,
+            'hit_rate': f"{(valid/(valid+expired)*100):.1f}%" if (valid+expired) > 0 else "0%"
+        }
+
+# Initialize cache
+api_cache = APICache()
+
+# 🧹 Periodic cache cleanup (every 10 minutes)
+import threading
+import time
+
+def periodic_cache_cleanup():
+    """Clean up expired cache entries every 10 minutes"""
+    while True:
+        try:
+            time.sleep(600)  # 10 minutes
+            api_cache.clear_expired()
+            print(f"🧹 Periodic cache cleanup completed at {datetime.now().isoformat()}")
+        except Exception as e:
+            print(f"❌ Cache cleanup error: {e}")
+
+# Start cache cleanup thread
+cleanup_thread = threading.Thread(target=periodic_cache_cleanup, daemon=True)
+cleanup_thread.start()
+print("🚀 Cache cleanup thread started")
+
+# Database configuration - Use Supabase for actual data
+import os
+from supabase import create_client, Client
+
+# Supabase configuration
+SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://aqjplgfghbvwwhwvqzjl.supabase.co')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY', 'your-supabase-anon-key')
+
+# Initialize Supabase client
+try:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    print("Supabase client initialized successfully!")
+except Exception as e:
+    print(f"Supabase initialization error: {e}")
+    supabase = None
+
+def get_supabase_client():
+    """Get Supabase client"""
+    return supabase
+
+# KMIT API configuration
+KMIT_API_BASE = "https://kmit-api.teleuniv.in"
+
+# Handle CORS preflight requests
+
+# 🎯 Cache statistics endpoint
+@app.route('/api/cache-stats', methods=['GET'])
+def get_cache_stats():
+    """Get cache performance statistics"""
+    try:
+        # Clean up expired entries first
+        api_cache.clear_expired()
+        
+        stats = api_cache.get_stats()
+        return jsonify({
+            "success": True,
+            "data": {
+                "cache_stats": stats,
+                "timestamp": datetime.now().isoformat(),
+                "message": "Cache performance metrics"
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Failed to get cache stats: {str(e)}"
+        }), 500
+
+# 🧹 Cache cleanup endpoint
+@app.route('/api/cache-clear', methods=['POST'])
+def clear_cache():
+    """Clear all cached data"""
+    try:
+        api_cache.cache.clear()
+        return jsonify({
+            "success": True,
+            "message": "All cache cleared successfully"
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Failed to clear cache: {str(e)}"
+        }), 500
+@app.route('/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    """Handle OPTIONS requests for CORS preflight"""
+    response = jsonify({'status': 'ok'})
+    response.headers.add('Access-Control-Allow-Origin', 'https://vichaar-kappa.vercel.app')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
+    return response
+
+@app.route('/api/')
+def root():
+    """Root endpoint to confirm backend is running"""
+    return jsonify({
+        "message": "KMIT Vichaar Backend is running!",
+        "status": "active",
+        "timestamp": datetime.now().isoformat(),
+        "endpoints": {
+            "test": "/api/test-kmit",
+            "attendance": "/api/attendance",
+            "results": "/api/results",
+            "timetable": "/api/timetable"
+        }
+    })
+
+@app.route('/api/test-kmit', methods=['GET'])
+def test_kmit():
+    """
+    Test endpoint to check KMIT API connectivity and see what it expects
+    """
+    try:
+        print("Testing KMIT API connectivity...")
+        
+        # Try a simple GET request to see if we can reach the API
+        test_response = requests.get(
+            f"{KMIT_API_BASE}/auth/login",
+            timeout=10
+        )
+        
+        print(f"Test response status: {test_response.status_code}")
+        print(f"Test response headers: {dict(test_response.headers)}")
+        print(f"Test response: {test_response.text}")
+        
+        return jsonify({
+            "success": True,
+            "message": "KMIT API test completed",
+            "status_code": test_response.status_code,
+            "response": test_response.text[:500] + "..." if len(test_response.text) > 500 else test_response.text
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Test failed: {str(e)}"
+        }), 500
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    try:
+        # Get login data from frontend
+        data = request.get_json()
+        phone_number = data.get('phoneNumber')
+        password = data.get('password')
+        
+        print(f"Login attempt for phone: {phone_number}")
+        print(f"Received data: {data}")
+        
+        # The frontend should send the complete payload including hCaptcha token
+        # If they don't have hCaptcha token, we'll try with empty token first
+        if 'token' in data:
+            # Frontend is sending complete payload
+            login_payload = data
+        else:
+            # Frontend only sending phone/password, we'll add defaults
+            login_payload = {
+                "username": phone_number,
+                "password": password,
+                "application": "netra",
+                "token": ""  # Empty token - this might fail but worth trying
+            }
+        
+        print(f"KMIT API payload: {login_payload}")
+        
+        # Make request to KMIT API
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Origin': 'https://kmit.teleuniv.in',
+            'Referer': 'https://kmit.teleuniv.in/',
+            'Connection': 'keep-alive'
+        }
+        
+        print(f"Making request to: {KMIT_API_BASE}/auth/login")
+        print(f"Headers: {headers}")
+        
+        response = requests.post(
+            f"{KMIT_API_BASE}/auth/login",
+            json=login_payload,
+            headers=headers,
+            timeout=30
+        )
+        
+        print(f"KMIT API Response Status: {response.status_code}")
+        print(f"KMIT API Response Headers: {dict(response.headers)}")
+        print(f"KMIT API Response: {response.text}")
+        
+        if response.status_code == 201:
+            # Success
+            try:
+                kmit_data = response.json()
+                
+                # Store student data in database
+                if kmit_data.get('Error') == False and 'access_token' in kmit_data:
+                    # Extract student ID from JWT token
+                    import jwt
+                    try:
+                        # Decode JWT to get student ID
+                        token_parts = kmit_data['access_token'].split('.')
+                        if len(token_parts) == 3:
+                            import base64
+                            import urllib.parse
+                            
+                            # Decode JWT payload
+                            payload = token_parts[1]
+                            # Add padding if needed
+                            payload += '=' * (4 - len(payload) % 4)
+                            decoded_payload = base64.urlsafe_b64decode(payload)
+                            payload_data = json.loads(decoded_payload.decode('utf-8'))
+                            
+                            student_id = payload_data.get('sub')
+                            if student_id:
+                                print(f"Extracted student ID from JWT: {student_id}")
+                                # Store student data in database
+                                store_student_data(kmit_data, student_id)
+                            else:
+                                print("No student ID found in JWT payload")
+                        else:
+                            print("Invalid JWT token format")
+                    except Exception as jwt_error:
+                        print(f"Failed to decode JWT: {jwt_error}")
+                
+                return jsonify({
+                    "success": True,
+                    "message": "Login successful",
+                    "data": kmit_data
+                })
+            except json.JSONDecodeError:
+                return jsonify({
+                    "success": False,
+                    "error": "Invalid JSON response from KMIT API",
+                    "details": response.text
+                }), 400
+        else:
+            # Error from KMIT API
+            error_message = f"KMIT API error: {response.status_code}"
+            try:
+                error_data = response.json()
+                if 'message' in error_data:
+                    error_message = error_data['message']
+                elif 'error' in error_data:
+                    error_message = error_data['error']
+            except:
+                pass
+                
+            return jsonify({
+                "success": False,
+                "error": error_message,
+                "status_code": response.status_code,
+                "details": response.text
+            }), 400
+            
+    except requests.exceptions.Timeout:
+        return jsonify({
+            "success": False,
+            "error": "Request timeout - KMIT API is taking too long to respond"
+        }), 408
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            "success": False,
+            "error": f"Network error: {str(e)}"
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route('/api/login-with-token', methods=['POST'])
+def login_with_token_direct():
+    """Direct login endpoint without /api prefix for frontend compatibility"""
+    try:
+        data = request.get_json()
+        print(f"Direct login attempt: {data}")
+        
+        # Expect the complete payload from frontend
+        if not all(key in data for key in ['username', 'password', 'application', 'token']):
+            return jsonify({
+                "success": False,
+                "error": "Missing required fields: username, password, application, token"
+            }), 400
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Origin': 'https://kmit.teleuniv.in',
+            'Referer': 'https://kmit.teleuniv.in/',
+            'Connection': 'keep-alive'
+        }
+        
+        response = requests.post(
+            f"{KMIT_API_BASE}/auth/login",
+            json=data,
+            headers=headers,
+            timeout=30
+        )
+        
+        print(f"KMIT API Response Status: {response.status_code}")
+        print(f"KMIT API Response: {response.text}")
+        
+        if response.status_code == 201:
+            kmit_data = response.json()
+            return jsonify({
+                "success": True,
+                "data": kmit_data,
+                "message": "Login successful"
+            })
+        else:
+            error_message = f"KMIT API error: {response.status_code}"
+            try:
+                error_data = response.json()
+                if 'message' in error_data:
+                    error_message = error_data['message']
+            except:
+                pass
+                
+            return jsonify({
+                "success": False,
+                "error": error_message,
+                "status_code": response.status_code,
+                "details": response.text
+            }), 400
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route('/api/attendance', methods=['GET'])
+def get_attendance():
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return jsonify({"success": False, "error": "No authorization token"}), 401
+        
+        # Extract student ID from JWT token
+        try:
+            import base64
+            token_parts = auth_header.replace('Bearer ', '').split('.')
+            if len(token_parts) == 3:
+                payload = token_parts[1]
+                payload += '=' * (4 - len(payload) % 4)
+                decoded_payload = base64.urlsafe_b64decode(payload)
+                payload_data = json.loads(decoded_payload.decode('utf-8'))
+                student_id = payload_data.get('sub')
+                print(f"Extracted student ID from token: {student_id}")
+            else:
+                return jsonify({"success": False, "error": "Invalid token format"}), 400
+        except Exception as e:
+            print(f"Failed to decode JWT: {e}")
+            return jsonify({"success": False, "error": "Invalid token"}), 400
+        
+        # 🚫 No caching for attendance - always fetch fresh data
+        # (Faculty updates attendance frequently)
+        
+        headers = {
+            'Authorization': auth_header,
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+        }
+        
+        # Now fetch real attendance data using the correct student ID
+        print(f"🔍 Fetching fresh attendance for student ID: {student_id}")
+        attendance_response = requests.get(
+            f"{KMIT_API_BASE}/sanjaya/getAttendance",
+            headers=headers,
+            timeout=30
+        )
+        
+        print(f"KMIT attendance response status: {attendance_response.status_code}")
+        print(f"KMIT attendance response: {attendance_response.text}")
+        
+        if attendance_response.status_code == 200:
+            try:
+                attendance_data = attendance_response.json()
+                print(f"Parsed KMIT attendance data: {json.dumps(attendance_data, indent=2)}")
+                
+                # Return the raw KMIT data so we can see its actual structure
+                return jsonify({
+                    "success": True,
+                    "data": attendance_data,
+                    "message": "Fresh attendance data fetched from KMIT (no caching)",
+                    "cached": False
+                })
+            except json.JSONDecodeError:
+                return jsonify({
+                    "success": False,
+                    "error": "Invalid JSON response from KMIT API"
+                }), 400
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"Failed to fetch attendance: {attendance_response.status_code}",
+                "response": attendance_response.text
+            }), 400
+            
+    except Exception as e:
+        print(f"Attendance endpoint error: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route('/api/notices-count', methods=['GET'])
+def get_notices_count():
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return jsonify({"success": False, "error": "No authorization token"}), 401
+        
+        headers = {
+            'Authorization': auth_header,
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+        }
+        
+        response = requests.get(
+            f"{KMIT_API_BASE}/sanjaya/getUnseenNoticesCountByStudent",
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            notices_data = response.json()
+            
+            # 💾 Cache the notices data
+            api_cache.set(f"notices_{student_id}", notices_data, 'notices')
+            
+            return jsonify({
+                "success": True,
+                "data": notices_data
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"Failed to fetch notices: {response.status_code}"
+            }), 400
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route('/api/test-attendance', methods=['GET'])
+def test_attendance():
+    """Test endpoint to see KMIT attendance API structure"""
+    try:
+        print("Testing KMIT attendance API...")
+        
+        # Try to get attendance data structure
+        test_response = requests.get(
+            f"{KMIT_API_BASE}/sanjaya/getAttendance",
+            timeout=10
+        )
+        
+        print(f"Attendance test response status: {test_response.status_code}")
+        print(f"Attendance test response headers: {dict(test_response.headers)}")
+        
+        if test_response.status_code == 200:
+            try:
+                attendance_data = test_response.json()
+                print(f"Attendance data structure: {json.dumps(attendance_data, indent=2)}")
+                return jsonify({
+                    "success": True,
+                    "message": "KMIT attendance API test completed",
+                    "status_code": test_response.status_code,
+                    "data_structure": attendance_data
+                })
+            except json.JSONDecodeError:
+                return jsonify({
+                    "success": True,
+                    "message": "KMIT attendance API test completed (non-JSON response)",
+                    "status_code": test_response.status_code,
+                    "response_text": test_response.text[:500]
+                })
+        else:
+            return jsonify({
+                "success": True,
+                "message": "KMIT attendance API test completed",
+                "status_code": test_response.status_code,
+                "response_text": test_response.text[:500]
+            })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Attendance test failed: {str(e)}"
+        }), 500
+
+@app.route('/api/subject-attendance', methods=['GET'])
+def get_subject_attendance():
+    """Fetch subject-wise attendance from KMIT API"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return jsonify({"success": False, "error": "No authorization token"}), 401
+        
+        headers = {
+            'Authorization': auth_header,
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+        }
+        
+        # Fetch subject attendance from KMIT
+        response = requests.get(
+            f"{KMIT_API_BASE}/sanjaya/getSubjectAttendance",
+            headers=headers,
+            timeout=30
+        )
+        
+        print(f"Subject attendance response status: {response.status_code}")
+        print(f"Subject attendance response: {response.text}")
+        
+        if response.status_code == 200:
+            try:
+                subject_data = response.json()
+                return jsonify({
+                    "success": True,
+                    "data": subject_data,
+                    "message": "Subject attendance fetched from KMIT"
+                })
+            except json.JSONDecodeError:
+                return jsonify({
+                    "success": False,
+                    "error": "Invalid JSON response from KMIT API"
+                }), 400
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"Failed to fetch subject attendance: {response.status_code}"
+            }), 400
+            
+    except Exception as e:
+        print(f"Subject attendance error: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({"status": "healthy", "message": "KMIT Vichaar Backend is running"})
+
+@app.route('/api/search-students', methods=['GET'])
+def search_students():
+    """Search for students by name or hall ticket number with different search types"""
+    try:
+        query = request.args.get('q', '').strip()
+        search_type = request.args.get('type', 'broad')  # exact, partial, name, broad
+        
+        if not query:
+            return jsonify({
+                "success": False,
+                "error": "Search query is required"
+            }), 400
+        
+        supabase_client = get_supabase_client()
+        if not supabase_client:
+            return jsonify({
+                "success": False,
+                "error": "Supabase connection failed"
+            }), 500
+        
+        try:
+            # Different search strategies based on type
+            if search_type == 'exact':
+                # Exact hall ticket match
+                response = supabase_client.table('student_profiles').select('*').eq('hall_ticket', query).limit(10).execute()
+            elif search_type == 'partial':
+                # Partial hall ticket match
+                response = supabase_client.table('student_profiles').select('*').ilike('hall_ticket', f'%{query}%').limit(10).execute()
+            elif search_type == 'name':
+                # Name search
+                query_no_spaces = query.replace(' ', '')
+                response = supabase_client.table('student_profiles').select('*').or_(f'name.ilike.%{query}%,name.ilike.%{query_no_spaces}%').limit(10).execute()
+            else:
+                # Broad search (default)
+                query_no_spaces = query.replace(' ', '')
+                response = supabase_client.table('student_profiles').select('*').or_(f'name.ilike.%{query}%,hall_ticket.ilike.%{query}%,roll_number.ilike.%{query}%').limit(20).execute()
+            
+            if hasattr(response, 'data'):
+                students = response.data
+            else:
+                students = []
+            
+            return jsonify({
+                "success": True,
+                "data": students,  # Return students array directly
+                "total_results": len(students),
+                "query": query,
+                "search_type": search_type
+            })
+            
+        except Exception as db_error:
+            return jsonify({
+                "success": False,
+                "error": f"Database error: {str(db_error)}"
+            }), 500
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Search failed: {str(e)}"
+        }), 500
+
+def store_student_data(student_data, kmit_id):
+    """Store or update student data in database"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Extract student info from KMIT response
+        student = student_data.get('student', {})
+        
+        # Check if student already exists
+        cursor.execute('SELECT id FROM students WHERE kmit_id = ?', (kmit_id,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing student
+            cursor.execute('''
+                UPDATE students SET
+                    name = ?, hall_ticket = ?, roll_number = ?, branch = ?, year = ?, semester = ?,
+                    email = ?, phone = ?, branch_code = ?, course = ?, section = ?, admission_year = ?,
+                    dob = ?, father_name = ?, father_mobile = ?, gender = ?, qr_key = ?,
+                    student_type = ?, status = ?, regulation = ?, last_updated = CURRENT_TIMESTAMP
+                WHERE kmit_id = ?
+            ''', (
+                student.get('name'),
+                student.get('htno'),
+                student.get('rollno'),
+                student.get('branch', {}).get('name') if student.get('branch') else None,
+                student.get('currentyear'),
+                student.get('currentsemester'),
+                student.get('student_email'),
+                student.get('phone'),
+                student.get('branch', {}).get('code') if student.get('branch') else None,
+                student.get('course', {}).get('name') if student.get('course') else None,
+                student.get('section', {}).get('name') if student.get('section') else None,
+                student.get('admissionyear'),
+                student.get('dob'),
+                student.get('fathername'),
+                student.get('fathermobile'),
+                student.get('gender'),
+                student.get('qr_key'),
+                student.get('studenttype'),
+                student.get('status'),
+                student.get('regulation', {}).get('name') if student.get('regulation') else None,
+                kmit_id
+            ))
+            print(f"Updated student {kmit_id} in database")
+        else:
+            # Insert new student
+            cursor.execute('''
+                INSERT INTO students (
+                    kmit_id, name, hall_ticket, roll_number, branch, year, semester,
+                    email, phone, branch_code, course, section, admission_year,
+                    dob, father_name, father_mobile, gender, qr_key, student_type, status, regulation
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                kmit_id,
+                student.get('name'),
+                student.get('htno'),
+                student.get('rollno'),
+                student.get('branch', {}).get('name') if student.get('branch') else None,
+                student.get('currentyear'),
+                student.get('currentsemester'),
+                student.get('student_email'),
+                student.get('phone'),
+                student.get('branch', {}).get('code') if student.get('branch') else None,
+                student.get('course', {}).get('name') if student.get('course') else None,
+                student.get('section', {}).get('name') if student.get('section') else None,
+                student.get('admissionyear'),
+                student.get('dob'),
+                student.get('fathername'),
+                student.get('fathermobile'),
+                student.get('gender'),
+                student.get('qr_key'),
+                student.get('studenttype'),
+                student.get('status'),
+                student.get('regulation', {}).get('name') if student.get('regulation') else None
+            ))
+            print(f"Added new student {kmit_id} to database")
+        
+        conn.commit()
+        conn.close()
+        
+    except Exception as e:
+        print(f"Failed to store student data: {e}")
+        # Don't fail the login if database storage fails
+
+@app.route('/api/internal-results', methods=['GET'])
+def get_internal_results():
+    """
+    Fetch internal assessment results from KMIT API
+    """
+    try:
+        # Get authorization header
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({"error": "Authorization header required"}), 401
+        
+        token = auth_header.split(' ')[1]
+        
+        # Extract student ID from JWT token
+        try:
+            import jwt
+            print(f"Attempting to decode token: {token[:50]}...")
+            decoded = jwt.decode(token, options={"verify_signature": False})
+            print(f"Decoded token: {decoded}")
+            student_id = decoded.get('sub')
+            print(f"Extracted student ID: {student_id}")
+            if not student_id:
+                return jsonify({"error": "Invalid token: no student ID"}), 401
+        except Exception as e:
+            print(f"Token decode error: {e}")
+            return jsonify({"error": "Invalid token"}), 401
+        
+        # Make request to KMIT API
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+        
+        print(f"Making request to KMIT API with student ID: {student_id}")
+        response = requests.get(
+            f"{KMIT_API_BASE}/sanjaya/getInternalResultsbyStudent/{student_id}",
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            results_data = response.json()
+            
+            # 💾 Cache the internal results data
+            api_cache.set(f"internal_results_{student_id}", results_data, 'results')
+            
+            return jsonify({
+                "success": True,
+                "data": results_data,
+                "message": "Internal results fetched and cached"
+            })
+        else:
+            print(f"KMIT API error: {response.status_code} - {response.text}")
+            return jsonify({
+                "success": False,
+                "error": f"KMIT API returned {response.status_code}",
+                "details": response.text
+            }), response.status_code
+            
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Request timeout"}), 504
+    except requests.exceptions.RequestException as e:
+        print(f"Request error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/api/semester-results', methods=['GET'])
+def get_semester_results():
+    """
+    Fetch semester results from KMIT API
+    """
+    try:
+        # Get authorization header
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({"error": "Authorization header required"}), 401
+        
+        token = auth_header.split(' ')[1]
+        
+        # Extract student ID from JWT token
+        try:
+            import jwt
+            print(f"Semester Results - Attempting to decode token: {token[:50]}...")
+            decoded = jwt.decode(token, options={"verify_signature": False})
+            print(f"Semester Results - Decoded token: {decoded}")
+            student_id = decoded.get('sub')
+            print(f"Semester Results - Extracted student ID: {student_id}")
+            if not student_id:
+                return jsonify({"error": "Invalid token: no student ID"}), 401
+        except Exception as e:
+            print(f"Semester Results - Token decode error: {e}")
+            return jsonify({"error": "Invalid token"}), 401
+        
+        # Make request to KMIT API for semester results
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+        
+        print(f"Semester Results - Making request to KMIT API with student ID: {student_id}")
+        # Using the correct endpoint for semester results
+        response = requests.get(
+            f"{KMIT_API_BASE}/ouresults/getcmm/{student_id}",
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            results_data = response.json()
+            
+            # 💾 Cache the semester results data
+            api_cache.set(f"semester_results_{student_id}", results_data, 'results')
+            
+            return jsonify({
+                "success": True,
+                "data": results_data,
+                "message": "Semester results fetched and cached"
+            })
+        else:
+            print(f"KMIT API error: {response.status_code} - {response.text}")
+            return jsonify({
+                "success": False,
+                "error": f"KMIT API returned {response.status_code}",
+                "details": response.text
+            }), response.status_code
+            
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Request timeout"}), 504
+    except requests.exceptions.RequestException as e:
+        print(f"Request error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/api/timetable', methods=['GET'])
+def get_timetable():
+    """
+    Fetch timetable from KMIT API
+    """
+    try:
+        # Get authorization header
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({"error": "Authorization header required"}), 401
+        
+        token = auth_header.split(' ')[1]
+        
+        # Extract student ID from JWT token
+        try:
+            import jwt
+            print(f"Timetable - Attempting to decode token: {token[:50]}...")
+            decoded = jwt.decode(token, options={"verify_signature": False})
+            print(f"Timetable - Decoded token: {decoded}")
+            student_id = decoded.get('sub')
+            print(f"Timetable - Extracted student ID: {student_id}")
+            if not student_id:
+                return jsonify({"error": "Invalid token: no student ID"}), 401
+        except Exception as e:
+            print(f"Timetable - Token decode error: {e}")
+            return jsonify({"error": "Invalid token"}), 401
+        
+        # Make request to KMIT API for timetable
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
+        }
+        
+        print(f"Timetable - Making request to KMIT API with student ID: {student_id}")
+        response = requests.get(
+            f"{KMIT_API_BASE}/sanjaya/getTimeTablebyStudent",
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            timetable_data = response.json()
+            
+            # 💾 Cache the timetable data (5 months TTL)
+            api_cache.set(f"timetable_{student_id}", timetable_data, 'timetable')
+            
+            return jsonify({
+                "success": True,
+                "data": timetable_data,
+                "message": "Timetable fetched and cached"
+            })
+        else:
+            print(f"KMIT API error: {response.status_code} - {response.text}")
+            return jsonify({
+                "success": False,
+                "error": f"KMIT API returned {response.status_code}",
+                "details": response.text
+            }), response.status_code
+            
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Request timeout"}), 504
+    except requests.exceptions.RequestException as e:
+        print(f"Request error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/api/student-profile/<student_id>', methods=['GET'])
+def get_student_profile_direct(student_id):  # Different function name
+    try:
+        # Get authorization header from frontend
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return jsonify({"success": False, "error": "No authorization token"}), 401
+        
+        # 🎯 Check cache first
+        cache_key = f"student_profile_{student_id}"
+        cached_data = api_cache.get(cache_key)
+        if cached_data:
+            print(f"🎯 Returning cached profile for student {student_id}")
+            return jsonify({
+                "success": True,
+                "data": cached_data,
+                "message": "Cached student profile",
+                "cached": True
+            })
+        
+        headers = {
+            'Authorization': auth_header,
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+        }
+        
+        print(f"🔍 Fetching fresh profile for student ID: {student_id}")
+        response = requests.get(
+            f"{KMIT_API_BASE}/studentmaster/studentprofile/{student_id}",
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            profile_data = response.json()
+            
+            # 💾 Cache the profile data
+            api_cache.set(cache_key, profile_data, 'student_profile')
+            
+            return jsonify({
+                "success": True,
+                "data": profile_data,
+                "message": "Fresh student profile",
+                "cached": False
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"Failed to fetch profile: {response.status_code}"
+            }), 400
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route('/api/student-credentials', methods=['GET'])
+def get_student_credentials():
+    """Get student credentials by mobile number"""
+    try:
+        mobile_number = request.args.get('mobile_number')
+        if not mobile_number:
+            return jsonify({"success": False, "error": "Mobile number is required"}), 400
+        
+        supabase_client = get_supabase_client()
+        if not supabase_client:
+            return jsonify({"success": False, "error": "Supabase connection failed"}), 500
+        
+        # Query your actual Supabase database for credentials
+        response = supabase_client.table('student_credentials').select('*').eq('mobile_number', mobile_number).execute()
+        
+        if hasattr(response, 'data') and response.data:
+            credentials = response.data[0]  # Get first match
+            return jsonify({
+                "success": True,
+                "data": credentials,
+                "message": "Credentials retrieved successfully"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "No credentials found for this mobile number"
+            }), 404
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route('/api/test-supabase', methods=['GET'])
+def test_supabase():
+    """Test Supabase connectivity"""
+    try:
+        supabase_client = get_supabase_client()
+        if not supabase_client:
+            return jsonify({
+                "success": False,
+                "error": "Supabase connection failed"
+            }), 500
+        
+        # Test basic connection by getting count of student_profiles
+        response = supabase_client.table('student_profiles').select('*', count='exact').execute()
+        
+        return jsonify({
+            "success": True,
+            "database_status": "Connected to Supabase",
+            "total_students": len(response.data) if hasattr(response, 'data') else 0,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Supabase test failed: {str(e)}"
+        }), 500
+
+# This is required for Vercel
+if __name__ == '__main__':
+    app.run()
