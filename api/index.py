@@ -131,23 +131,45 @@ print("🚀 Cache cleanup thread started")
 
 # Database configuration - Use Supabase for actual data
 import os
-from supabase import create_client, Client
 
-# Supabase configuration (loaded securely from environment variables)
-SUPABASE_URL = os.environ.get('SUPABASE_URL') or os.environ.get('VITE_SUPABASE_URL', '')
-SUPABASE_KEY = os.environ.get('SUPABASE_KEY') or os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY') or os.environ.get('VITE_SUPABASE_ANON_KEY', '')
-
-# Initialize Supabase client
-try:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    print("Supabase client initialized successfully!")
-except Exception as e:
-    print(f"Supabase initialization error: {e}")
-    supabase = None
+_supabase_client = None
+_supabase_error = None
 
 def get_supabase_client():
-    """Get Supabase client"""
-    return supabase
+    """Get Supabase client with lazy initialization and detailed diagnostics"""
+    global _supabase_client, _supabase_error
+    if _supabase_client is not None:
+        return _supabase_client
+    
+    url = (
+        os.environ.get('SUPABASE_URL') or 
+        os.environ.get('VITE_SUPABASE_URL') or 
+        ''
+    ).strip().strip("'\"")
+    
+    key = (
+        os.environ.get('SUPABASE_KEY') or 
+        os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY') or 
+        os.environ.get('VITE_SUPABASE_ANON_KEY') or 
+        ''
+    ).strip().strip("'\"")
+    
+    if not url or not key:
+        env_keys = [k for k in os.environ.keys() if 'SUPABASE' in k]
+        _supabase_error = f"Missing credentials: SUPABASE_URL set={bool(url)}, SUPABASE_KEY set={bool(key)}. Available Supabase env keys: {env_keys}"
+        print(f"❌ {_supabase_error}")
+        return None
+    
+    try:
+        from supabase import create_client
+        _supabase_client = create_client(url, key)
+        _supabase_error = None
+        print("✅ Supabase client initialized successfully!")
+        return _supabase_client
+    except Exception as e:
+        _supabase_error = f"create_client failed: {type(e).__name__}: {str(e)}"
+        print(f"❌ {_supabase_error}")
+        return None
 
 # KMIT API configuration
 KMIT_API_BASE = "https://kmit-api.teleuniv.in"
@@ -680,7 +702,7 @@ def search_students():
         if not supabase_client:
             return jsonify({
                 "success": False,
-                "error": "Supabase connection failed"
+                "error": f"Supabase connection failed: {_supabase_error}"
             }), 500
         
         try:
@@ -1083,7 +1105,10 @@ def get_student_credentials():
         
         supabase_client = get_supabase_client()
         if not supabase_client:
-            return jsonify({"success": False, "error": "Supabase connection failed"}), 500
+            return jsonify({
+                "success": False,
+                "error": f"Supabase connection failed: {_supabase_error}"
+            }), 500
         
         # Query your actual Supabase database for credentials
         response = supabase_client.table('student_credentials').select('*').eq('mobile_number', mobile_number).execute()
@@ -1115,7 +1140,7 @@ def test_supabase():
         if not supabase_client:
             return jsonify({
                 "success": False,
-                "error": "Supabase connection failed"
+                "error": f"Supabase connection failed: {_supabase_error}"
             }), 500
         
         # Test basic connection by getting count of student_profiles
