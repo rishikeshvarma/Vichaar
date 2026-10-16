@@ -446,6 +446,18 @@ class OptimizedAPIClient {
     console.log('🧹 All caches cleared');
   }
 
+  // 🎯 Logout and clear all tokens & caches
+  logout(): void {
+    this.clearCaches();
+    localStorage.removeItem('kmit_access_token');
+    localStorage.removeItem('kmit_refresh_token');
+    localStorage.removeItem('kmit_student_id');
+    localStorage.removeItem('kmit_token_expiry');
+    localStorage.removeItem('currentStudent');
+    localStorage.removeItem('currentTokens');
+    console.log('🧹 OptimizedAPIClient: Logged out and cleared all tokens and caches');
+  }
+
   // 🎯 Get cache statistics
   getCacheStats() {
     return cacheManager.getStats();

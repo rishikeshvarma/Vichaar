@@ -143,7 +143,7 @@ const updateProfileInDatabase = async (profileData: any, fullPayload: any) => {
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { theme, toggleTheme } = useTheme()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, logout } = useAuth()
   const [studentData, setStudentData] = useState<StudentData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -619,6 +619,26 @@ export default function DashboardPage() {
 
 
   const handleBack = () => {
+    console.log('🚪 Back to Search clicked: logging out and clearing student session & caches...')
+    try {
+      logout()
+    } catch (e) {
+      console.warn('AuthContext logout error:', e)
+    }
+    apiClient.logout()
+    optimizedApiClient.logout()
+    localStorage.removeItem('currentStudent')
+    localStorage.removeItem('currentTokens')
+    localStorage.removeItem('kmit_access_token')
+    localStorage.removeItem('kmit_refresh_token')
+    localStorage.removeItem('kmit_student_id')
+    localStorage.removeItem('kmit_token_expiry')
+    setStudentData(null)
+    setAttendanceDetails(null)
+    setSubjectAttendance(null)
+    setInternalResults(null)
+    setSemesterResults(null)
+    setTimetableData(null)
     navigate('/')
   }
 
@@ -691,7 +711,7 @@ export default function DashboardPage() {
             
             {/* Back to Search - Fixed for mobile */}
             <button
-              onClick={() => navigate('/')}
+              onClick={handleBack}
               className="flex items-center space-x-2 px-3 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm whitespace-nowrap"
             >
               <ArrowLeft className="w-4 h-4" />

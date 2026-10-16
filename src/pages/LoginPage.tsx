@@ -64,6 +64,13 @@ export default function LoginPage() {
     }
   }, [])
 
+  // Clean up previous student session and caches when landing on search page
+  useEffect(() => {
+    console.log('🧹 LoginPage mounted: clearing previous student session & caches')
+    apiClient.logout()
+    optimizedApiClient.logout()
+  }, [])
+
   // Simple hCaptcha initialization (same as register page)
   useEffect(() => {
     if (!window.hcaptcha || hasInitializedRef.current) return
@@ -106,16 +113,21 @@ export default function LoginPage() {
       // Ensure captcha token is present
       if (!captchaToken) {
         console.error('❌ No captcha token available');
-        toast.error('Security verification required. Please try again.');
+        toast.error('Security verification required. Please solve the captcha before selecting a student.');
         return;
       }
+
+      const tokenToUse = captchaToken;
+      
+      // Clear all caches before starting new student session
+      optimizedApiClient.clearCaches();
       
       // Prepare login payload with captcha token (same as register page)
       const loginPayload = {
         username: mobileNumber,
         password: password,
         application: "netra",
-        token: captchaToken
+        token: tokenToUse
       }
       
       console.log('🔍 Search Login Request Details:');
@@ -128,10 +140,20 @@ export default function LoginPage() {
       const result = await optimizedApiClient.loginWithFullData(
         mobileNumber,
         password,
-        captchaToken
+        tokenToUse
       )
       
       console.log('🔍 API Response:', result);
+
+      // Immediately reset captcha since tokens are single-use
+      setCaptchaToken(null);
+      if (window.hcaptcha) {
+        try {
+          window.hcaptcha.reset();
+        } catch (e) {
+          console.warn('Failed to reset hcaptcha:', e);
+        }
+      }
       
       if (result.success) {
         // Login successful with comprehensive data
@@ -164,11 +186,19 @@ export default function LoginPage() {
         
       } else {
         console.error('API login failed:', result)
-        toast.error('Login failed. Please try again.')
+        toast.error('Login failed. Please solve security verification again.')
       }
       
     } catch (error: any) {
       console.error('Auto-login error:', error)
+      setCaptchaToken(null);
+      if (window.hcaptcha) {
+        try {
+          window.hcaptcha.reset();
+        } catch (e) {
+          console.warn('Failed to reset hcaptcha:', e);
+        }
+      }
       toast.error(error.message || 'Login failed. Please try again.')
     }
   }
@@ -204,6 +234,10 @@ export default function LoginPage() {
       }
       
       console.log('🎯 Student selected:', student)
+
+      // Ensure previous session is completely wiped before starting new student login
+      apiClient.logout()
+      optimizedApiClient.logout()
       
       // Get credentials for this student from our backend instead of direct Supabase
       try {
@@ -220,7 +254,7 @@ export default function LoginPage() {
         
         if (!result.success || !result.data) {
           console.error('Failed to get credentials:', result.error)
-          toast.error('Student found but login failed. Please try again.')
+          toast.error('Student found but login credentials unavailable. Please try another student.')
           return
         }
         

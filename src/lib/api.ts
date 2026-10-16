@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { clearAllCaches } from './cache'
 
 // Backend URL configuration
 // For Vercel unified deployment or local Vite proxy, defaults to '/api'
@@ -182,6 +183,8 @@ class KMITVichaarAPI {
     localStorage.removeItem('kmit_refresh_token')
     localStorage.removeItem('kmit_student_id')
     localStorage.removeItem('kmit_token_expiry')
+    localStorage.removeItem('currentStudent')
+    localStorage.removeItem('currentTokens')
     
     delete backendClient.defaults.headers.common['Authorization']
   }
@@ -598,6 +601,11 @@ class KMITVichaarAPI {
   // Logout
   logout() {
     this.clearTokens()
+    try {
+      clearAllCaches()
+    } catch (e) {
+      console.warn('Failed to clear caches on logout:', e)
+    }
   }
 
   // Check if user is authenticated

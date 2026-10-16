@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import apiClient from '@/lib/api'
+import { optimizedApiClient } from '@/lib/optimizedApi'
 
 interface User {
   username: string
@@ -122,6 +123,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     apiClient.logout()
+    try {
+      optimizedApiClient.logout()
+    } catch (e) {
+      console.warn('Failed to logout optimizedApiClient:', e)
+    }
     setUser(null)
   }
 
