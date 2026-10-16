@@ -255,16 +255,18 @@ export default function DashboardPage() {
     try {
       // Load internal results
       const internalResponse = await optimizedApiClient.getInternalResults()
-      if (internalResponse.success && internalResponse.data?.payload) {
-        setInternalResults(internalResponse.data.payload)
-        console.log('✅ Internal results loaded:', internalResponse.data.payload)
+      const internalData = internalResponse?.data?.payload || internalResponse?.payload || internalResponse?.data
+      if (internalData) {
+        setInternalResults(internalData)
+        console.log('✅ Internal results loaded:', internalData)
       }
 
       // Load semester results
       const semesterResponse = await optimizedApiClient.getSemesterResults()
-      if (semesterResponse.success && semesterResponse.data?.payload) {
-        setSemesterResults(semesterResponse.data.payload)
-        console.log('✅ Semester results loaded:', semesterResponse.data.payload)
+      const semesterData = semesterResponse?.data?.payload || semesterResponse?.payload || semesterResponse?.data
+      if (semesterData) {
+        setSemesterResults(semesterData)
+        console.log('✅ Semester results loaded:', semesterData)
       }
       
       console.log('📊 Results loading completed')
@@ -398,12 +400,13 @@ export default function DashboardPage() {
   const loadTimetableData = async () => {
     try {
       const timetableResponse = await optimizedApiClient.getTimetable()
-      if (timetableResponse.success && timetableResponse.data?.payload) {
-        setTimetableData(timetableResponse.data.payload)
+      const timetablePayload = timetableResponse?.data?.payload || timetableResponse?.payload || timetableResponse?.data
+      if (timetablePayload && Array.isArray(timetablePayload)) {
+        setTimetableData(timetablePayload)
         
         // Find current day and expand it by default
         const currentDay = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()
-        const currentDayIndex: number = timetableResponse.data.payload.findIndex((day: any) =>
+        const currentDayIndex: number = timetablePayload.findIndex((day: any) =>
           day.dayname === currentDay
         )
         
@@ -411,7 +414,7 @@ export default function DashboardPage() {
           setExpandedDays(new Set([currentDayIndex]))
         }
         
-        console.log('✅ Timetable loaded:', timetableResponse.data.payload)
+        console.log('✅ Timetable loaded:', timetablePayload)
         console.log('📅 Current day:', currentDay, 'at index:', currentDayIndex)
       }
     } catch (error: any) {
@@ -448,151 +451,150 @@ export default function DashboardPage() {
             const profile = await optimizedApiClient.getStudentProfile()
             console.log('✅ Student profile API response received:', profile)
             
-            if (profile && profile.payload) {
+            // Flexibly unwrap payload and student data
+            const profilePayload = profile?.data?.payload || profile?.payload || profile?.data || profile
+            const studentObj = profilePayload?.student || profile?.student || profile?.data
+            
+            if (profilePayload && studentObj && (studentObj.htno || studentObj.name)) {
               console.log('📋 Profile response structure:', {
                 hasSuccess: profile.success,
                 hasData: !!profile.data,
-                hasPayload: !!profile.payload,
-                hasStudent: !!profile.payload.student,
-                studentImageField: profile.payload.studentimage
+                hasPayload: !!profilePayload,
+                hasStudent: !!studentObj,
+                studentImageField: profilePayload.studentimage || profilePayload.student_image
               })
               
               console.log('🔍 Full profile object:', profile)
-              console.log('🔍 profile.payload:', profile.payload)
-              console.log('🔍 profile.payload?.student:', profile.payload?.student)
-              console.log('🔍 profile.payload?.studentimage:', profile.payload?.studentimage)
+              console.log('🔍 profilePayload:', profilePayload)
+              console.log('🔍 studentObj:', studentObj)
               
-              if (profile.payload.student) {
-                console.log('✅ Profile data extracted successfully:', profile.payload.student)
-                
-                // Convert KMIT API data to our format
-                const studentData: StudentData = {
-                  name: profile.payload.student.name || 'N/A',
-                  hallTicket: profile.payload.student.htno || 'N/A',
-                  branch: profile.payload.student.branch?.name || 'N/A',
-                  year: profile.payload.student.currentyear ? `${profile.payload.student.currentyear}${getOrdinalSuffix(Number(profile.payload.student.currentyear))} Year` : 'N/A',
-                  semester: profile.payload.student.currentsemester ? `${profile.payload.student.currentsemester}${getOrdinalSuffix(Number(profile.payload.student.currentsemester))} Semester` : 'N/A',
-                  studentImage: profile.payload.studentimage || undefined,
-                  qrCode: profile.payload.qrcode || undefined,
-                  attendance: {
-                    overall: 0,
+              // Convert KMIT API data to our format
+              const studentData: StudentData = {
+                name: studentObj.name || 'N/A',
+                hallTicket: studentObj.htno || 'N/A',
+                branch: studentObj.branch?.name || (typeof studentObj.branch === 'string' ? studentObj.branch : 'N/A'),
+                year: studentObj.currentyear ? `${studentObj.currentyear}${getOrdinalSuffix(Number(studentObj.currentyear))} Year` : 'N/A',
+                semester: studentObj.currentsemester ? `${studentObj.currentsemester}${getOrdinalSuffix(Number(studentObj.currentsemester))} Semester` : 'N/A',
+                studentImage: profilePayload.studentimage || profilePayload.student_image || studentObj.studentimage || undefined,
+                qrCode: profilePayload.qrcode || profilePayload.qr_code || studentObj.qrcode || undefined,
+                attendance: {
+                  overall: 0,
+                  present: 0,
+                  absent: 0,
+                  noSessions: 0,
+                  sessions: []
+                },
+                results: {
+                  cgpa: 0
+                }
+              }
+              
+              console.log('✅ Student data converted successfully:', studentData)
+              console.log('📸 Student image available:', studentData.studentImage ? 'Available' : 'Not available')
+              
+              setStudentData(studentData)
+              
+              // Update profile in database with complete information
+              console.log('🔄 ===== PROFILE UPDATE SECTION START =====')
+              console.log('🔄 About to call updateProfileInDatabase...')
+              console.log('🔄 profileData:', studentObj)
+              console.log('🔄 profilePayload:', profilePayload)
+              
+              try {
+                await updateProfileInDatabase(studentObj, profilePayload)
+              } catch (dbErr) {
+                console.warn('⚠️ updateProfileInDatabase failed but continuing UI render:', dbErr)
+              }
+              
+              console.log('🔄 ===== PROFILE UPDATE SECTION END =====')
+              
+              // Now fetch attendance data
+              console.log('🔄 ===== ATTENDANCE DATA LOADING START =====')
+              try {
+                const attendanceResponse = await optimizedApiClient.getAttendance()
+                const kmitData = attendanceResponse?.data?.payload || attendanceResponse?.payload || attendanceResponse?.data
+                if (kmitData) {
+                  console.log('✅ KMIT attendance data loaded:', kmitData)
+                  
+                  // Convert KMIT attendance format to our format
+                  const realAttendance = {
+                    overall: parseFloat(kmitData.overallAttendance) || 0,
                     present: 0,
                     absent: 0,
                     noSessions: 0,
-                    sessions: []
-                  },
-                  results: {
-                    cgpa: 0
+                    sessions: kmitData.attendanceDetails || []
                   }
-                }
-                
-                console.log('✅ Student data converted successfully:', studentData)
-                console.log('📸 Student image data:', profile.payload.studentimage)
-                console.log('📸 Student image available:', profile.payload.studentimage ? profile.payload.studentimage.substring(0, 100) + '...' : 'Not available')
-                
-                setStudentData(studentData)
-                
-                // Update profile in database with complete information
-                console.log('🔄 ===== PROFILE UPDATE SECTION START =====')
-                console.log('🔄 About to call updateProfileInDatabase...')
-                console.log('🔄 profileData:', profile.payload.student)
-                console.log('🔄 profile.payload:', profile.payload)
-                console.log('🔄 Function exists?', typeof updateProfileInDatabase)
-                console.log('🔄 Calling updateProfileInDatabase now...')
-                
-                await updateProfileInDatabase(profile.payload.student, profile.payload)
-                
-                console.log('🔄 ===== PROFILE UPDATE SECTION END =====')
-                
-                // Now fetch attendance data
-                console.log('🔄 ===== ATTENDANCE DATA LOADING START =====')
-                try {
-                  const attendanceResponse = await optimizedApiClient.getAttendance()
-                  if (attendanceResponse.success && attendanceResponse.data?.payload) {
-                    const kmitData = attendanceResponse.data.payload
-                    console.log('✅ KMIT attendance data loaded:', kmitData)
+                  
+                  // Calculate present/absent from TODAY'S attendance only
+                  if (kmitData.attendanceDetails && kmitData.attendanceDetails.length > 0) {
+                    const todayData = kmitData.attendanceDetails.find((day: any) => day.date === "Today")
+                    console.log('📅 Today data:', todayData)
                     
-                    // Convert KMIT attendance format to our format
-                    const realAttendance = {
-                      overall: parseFloat(kmitData.overallAttendance) || 0,
-                      present: 0,
-                      absent: 0,
-                      noSessions: 0,
-                      sessions: kmitData.attendanceDetails || []
-                    }
-                    
-                    // Calculate present/absent from TODAY'S attendance only
-                    if (kmitData.attendanceDetails && kmitData.attendanceDetails.length > 0) {
-                      const todayData = kmitData.attendanceDetails.find((day: any) => day.date === "Today")
-                      console.log('📅 Today data:', todayData)
+                    if (todayData && todayData.periods) {
+                      console.log('📅 Today\'s attendance data:', todayData)
+                      console.log('📚 Today\'s periods:', todayData.periods)
                       
-                      if (todayData && todayData.periods) {
-                        console.log('📅 Today\'s attendance data:', todayData)
-                        console.log('📚 Today\'s periods:', todayData.periods)
-                        
-                        // Count present/absent for today
-                        realAttendance.present = todayData.periods.filter((period: any) => 
-                          period.status === 1
-                        ).length
-                        realAttendance.absent = todayData.periods.filter((period: any) => 
-                          period.status === 0
-                        ).length
-                        realAttendance.noSessions = todayData.periods.filter((period: any) => 
-                          period.status === 2
-                        ).length
-                        
-                        console.log('📊 Today\'s counts:', {
-                          present: realAttendance.present,
-                          absent: realAttendance.absent,
-                          noSessions: realAttendance.noSessions
-                        })
+                      // Count present/absent for today
+                      realAttendance.present = todayData.periods.filter((period: any) => 
+                        period.status === 1
+                      ).length
+                      realAttendance.absent = todayData.periods.filter((period: any) => 
+                        period.status === 0
+                      ).length
+                      realAttendance.noSessions = todayData.periods.filter((period: any) => 
+                        period.status === 2
+                      ).length
+                      
+                      console.log('📊 Today\'s counts:', {
+                        present: realAttendance.present,
+                        absent: realAttendance.absent,
+                        noSessions: realAttendance.noSessions
+                      })
+                    }
+                  }
+                  
+                  // Store the full KMIT attendance data for the modal
+                  setAttendanceDetails(attendanceResponse?.data || attendanceResponse)
+                  
+                  // Update student data with real attendance
+                  setStudentData(prevData => {
+                    if (prevData) {
+                      return {
+                        ...prevData,
+                        attendance: realAttendance
                       }
                     }
-                    
-                    // Store the full KMIT attendance data for the modal
-                    setAttendanceDetails(attendanceResponse.data)
-                    
-                    // Update student data with real attendance
-                    setStudentData(prevData => {
-                      if (prevData) {
-                        return {
-                          ...prevData,
-                          attendance: realAttendance
-                        }
-                      }
-                      return prevData
-                    })
-                    
-                    console.log('🎯 Updated student data with REAL KMIT attendance')
-                    toast.success(`Loaded attendance: ${realAttendance.overall}%`)
-                  } else {
-                    console.warn('⚠️ No attendance data in response')
-                  }
-                } catch (attendanceError) {
-                  console.error('❌ Failed to fetch attendance:', attendanceError)
-                  toast.error('Could not fetch attendance data')
+                    return prevData
+                  })
+                  
+                  console.log('🎯 Updated student data with REAL KMIT attendance')
+                  toast.success(`Loaded attendance: ${realAttendance.overall}%`)
+                } else {
+                  console.warn('⚠️ No attendance data in response')
                 }
-                
-                console.log('🔄 ===== ATTENDANCE DATA LOADING END =====')
-                
-                // Now fetch subject attendance data
-                console.log('🔄 ===== SUBJECT ATTENDANCE LOADING START =====')
-                try {
-                  const subjectResponse = await optimizedApiClient.getSubjectAttendance()
-                  if (subjectResponse.success) {
-                    setSubjectAttendance(subjectResponse.data)
-                    console.log('✅ Subject attendance loaded:', subjectResponse.data)
-                  }
-                } catch (subjectError) {
-                  console.error('❌ Failed to fetch subject attendance:', subjectError)
-                }
-                console.log('🔄 ===== SUBJECT ATTENDANCE LOADING END =====')
-                
-              } else {
-                console.error('❌ No student data in profile response')
+              } catch (attendanceError) {
+                console.error('❌ Failed to fetch attendance:', attendanceError)
+                toast.error('Could not fetch attendance data')
               }
+              
+              console.log('🔄 ===== ATTENDANCE DATA LOADING END =====')
+              
+              // Now fetch subject attendance data
+              console.log('🔄 ===== SUBJECT ATTENDANCE LOADING START =====')
+              try {
+                const subjectResponse = await optimizedApiClient.getSubjectAttendance()
+                const subjectData = subjectResponse?.data?.payload || subjectResponse?.data || subjectResponse?.payload || subjectResponse
+                if (subjectData) {
+                  setSubjectAttendance(subjectData)
+                  console.log('✅ Subject attendance loaded:', subjectData)
+                }
+              } catch (subjectError) {
+                console.error('❌ Failed to fetch subject attendance:', subjectError)
+              }
+              console.log('🔄 ===== SUBJECT ATTENDANCE LOADING END =====')
+              
             } else {
-              console.error('❌ Invalid profile response structure')
+              console.error('❌ Invalid profile response structure or missing student data', profile)
             }
           } catch (error) {
             console.error('❌ Error fetching profile:', error)

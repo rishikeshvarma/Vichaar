@@ -106,7 +106,7 @@ class OptimizedAPIClient {
         }
       });
 
-      if (response && response.data && response.data.payload && response.data.payload.student) {
+      if (response && (response.data?.payload?.student || response.data?.student || response.payload?.student || response.data)) {
         // Cache the profile
         studentProfileCache.set(mobileNumber, response);
         return response;
@@ -141,7 +141,7 @@ class OptimizedAPIClient {
         }
       });
 
-      if (response && response.data && response.data.payload) {
+      if (response && (response.data?.payload || response.data || response.payload)) {
         // Cache the attendance data
         attendanceCache.set(mobileNumber, response);
         return response;
@@ -182,7 +182,7 @@ class OptimizedAPIClient {
         }
       });
 
-      if (response && response.data && response.data.payload) {
+      if (response && (response.data?.payload || response.data || response.payload)) {
         // Cache the results data
         resultsCache.set(mobileNumber, response);
         return response;
@@ -217,7 +217,7 @@ class OptimizedAPIClient {
         }
       });
 
-      if (response && response.payload) {
+      if (response && (response.data?.payload || response.data || response.payload)) {
         return response;
       }
 
@@ -250,7 +250,7 @@ class OptimizedAPIClient {
         }
       });
 
-      if (response && response.payload) {
+      if (response && (response.data?.payload || response.data || response.payload)) {
         return response;
       }
 
@@ -283,7 +283,7 @@ class OptimizedAPIClient {
         }
       });
 
-      if (response && response.payload) {
+      if (response && (response.data?.payload || response.data || response.payload)) {
         // Cache the timetable
         timetableCache.set(mobileNumber, response);
         return response;
@@ -318,7 +318,7 @@ class OptimizedAPIClient {
         }
       });
 
-      if (response && response.payload) {
+      if (response && (response.data?.payload || response.data || response.payload)) {
         return response;
       }
 
@@ -361,7 +361,7 @@ class OptimizedAPIClient {
       console.log('🔍 Searching students...');
       const response = await this.makeRequest(`/search-students?q=${encodeURIComponent(query)}`);
 
-      if (response && response.results) {
+      if (response && (response.data || response.results)) {
         return response;
       }
 
@@ -407,7 +407,14 @@ class OptimizedAPIClient {
       const currentStudent = localStorage.getItem('currentStudent');
       if (currentStudent) {
         const parsed = JSON.parse(currentStudent);
-        return parsed.mobile_number || parsed.phone;
+        if (parsed.mobile_number || parsed.phone) {
+          return parsed.mobile_number || parsed.phone;
+        }
+      }
+      
+      const studentId = localStorage.getItem('kmit_student_id');
+      if (studentId) {
+        return studentId;
       }
       
       // Try to get from profile cache
@@ -420,10 +427,10 @@ class OptimizedAPIClient {
         return lastProfileKey.replace('cache_student_profile_', '');
       }
       
-      return null;
+      return 'default_user';
     } catch (error) {
       console.warn('Failed to get current user mobile:', error);
-      return null;
+      return localStorage.getItem('kmit_student_id') || 'default_user';
     }
   }
 
