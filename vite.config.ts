@@ -30,7 +30,7 @@ export default defineConfig({
       },
       // Optional: Proxy to a fake domain for hCaptcha
       '/hcaptcha-bypass': {
-        target: 'https://kmit-vichaar-dev.vercel.app',
+        target: 'https://vichaar-nine.vercel.app',
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/hcaptcha-bypass/, ''),
@@ -38,7 +38,7 @@ export default defineConfig({
     },
     // Custom headers to trick hCaptcha
     headers: {
-      'X-Forwarded-Host': 'kmit-vichaar-dev.vercel.app',
+      'X-Forwarded-Host': 'vichaar-nine.vercel.app',
       'X-Forwarded-Proto': 'https',
       'X-Forwarded-For': '127.0.0.1',
     }

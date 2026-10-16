@@ -8,6 +8,7 @@ import {
   resultsCache,
   timetableCache
 } from './cache';
+import { BACKEND_BASE_URL } from './api';
 
 // 🎯 Keep EXACT same API structure, just add caching
 class OptimizedAPIClient {
@@ -436,4 +437,4 @@ class OptimizedAPIClient {
 }
 
 // 🎯 Create and export the optimized API client
-export const optimizedApiClient = new OptimizedAPIClient('https://vichaar-kappa.vercel.app/api');
+export const optimizedApiClient = new OptimizedAPIClient(BACKEND_BASE_URL);

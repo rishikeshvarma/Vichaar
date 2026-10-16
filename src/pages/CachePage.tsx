@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Database, TrendingUp, TrendingDown, Zap, Clock, Shield, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { BACKEND_BASE_URL } from '@/lib/api';
 
 interface CacheStats {
   total: number;
@@ -46,7 +47,7 @@ export default function CachePage() {
   const fetchCacheStats = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('https://vichaar-kappa.vercel.app/api/cache-stats');
+      const response = await fetch(`${BACKEND_BASE_URL}/cache-stats`);
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -67,7 +68,7 @@ export default function CachePage() {
     }
 
     try {
-      const response = await fetch('https://vichaar-kappa.vercel.app/api/cache-clear', {
+      const response = await fetch(`${BACKEND_BASE_URL}/cache-clear`, {
         method: 'POST'
       });
       if (response.ok) {

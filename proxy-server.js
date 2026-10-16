@@ -17,9 +17,9 @@ const proxyOptions = {
   },
   onProxyReq: (proxyReq, req, res) => {
     // Rewrite headers to make it look like a real domain
-    proxyReq.setHeader('Host', 'kmit-vichaar-dev.vercel.app');
-    proxyReq.setHeader('Origin', 'https://kmit-vichaar-dev.vercel.app');
-    proxyReq.setHeader('Referer', 'https://kmit-vichaar-dev.vercel.app/');
+    proxyReq.setHeader('Host', 'vichaar-nine.vercel.app');
+    proxyReq.setHeader('Origin', 'https://vichaar-nine.vercel.app');
+    proxyReq.setHeader('Referer', 'https://vichaar-nine.vercel.app/');
   },
   onProxyRes: (proxyRes, req, res) => {
     // Rewrite response headers
@@ -30,8 +30,8 @@ const proxyOptions = {
         body += chunk;
       });
       proxyRes.on('end', () => {
-        body = body.replace(/localhost:3001/g, 'kmit-vichaar-dev.vercel.app');
-        body = body.replace(/http:\/\/localhost:3001/g, 'https://kmit-vichaar-dev.vercel.app');
+        body = body.replace(/localhost:3001/g, 'vichaar-nine.vercel.app');
+        body = body.replace(/http:\/\/localhost:3001/g, 'https://vichaar-nine.vercel.app');
         res.setHeader('Content-Type', 'text/html');
         res.setHeader('Content-Length', Buffer.byteLength(body));
         res.end(body);

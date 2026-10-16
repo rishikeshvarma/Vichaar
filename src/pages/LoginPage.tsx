@@ -5,6 +5,7 @@ import { GraduationCap, Moon, Sun, Search, User, Hash, Eye, ArrowRight, Smartpho
 import toast from 'react-hot-toast'
 import { supabaseDB } from '@/lib/supabase'
 import { optimizedApiClient } from '@/lib/optimizedApi'
+import { BACKEND_BASE_URL } from '@/lib/api'
 
 // TypeScript declarations for hCaptcha (same as register page)
 declare global {
@@ -208,7 +209,7 @@ export default function LoginPage() {
         }
         
         console.log('🔍 Fetching credentials for mobile:', student.mobile_number)
-        const response = await fetch(`https://vichaar-kappa.vercel.app/api/student-credentials?mobile_number=${encodeURIComponent(student.mobile_number)}`)
+        const response = await fetch(`${BACKEND_BASE_URL}/student-credentials?mobile_number=${encodeURIComponent(student.mobile_number)}`)
         const result = await response.json()
         
         if (!result.success || !result.data) {
@@ -279,7 +280,7 @@ export default function LoginPage() {
       if (/^[A-Z0-9]+$/.test(trimmedQuery)) {
         console.log('🔍 Fast search by exact hall ticket:', trimmedQuery)
         try {
-          const searchUrl = `https://vichaar-kappa.vercel.app/api/search-students?q=${encodeURIComponent(trimmedQuery)}&type=exact`
+          const searchUrl = `${BACKEND_BASE_URL}/search-students?q=${encodeURIComponent(trimmedQuery)}&type=exact`
           console.log('🔗 Making request to:', searchUrl)
           const response = await fetch(searchUrl)
           const result = await response.json()
@@ -299,7 +300,7 @@ export default function LoginPage() {
       if ((!searchResults || searchResults.length === 0) && trimmedQuery.length >= 2) {
         console.log('🔍 Partial hall ticket search:', trimmedQuery)
         try {
-          const response = await fetch(`https://vichaar-kappa.vercel.app/api/search-students?q=${encodeURIComponent(trimmedQuery)}&type=partial`)
+          const response = await fetch(`${BACKEND_BASE_URL}/search-students?q=${encodeURIComponent(trimmedQuery)}&type=partial`)
           const result = await response.json()
           if (result.success && result.data && result.data.length > 0) {
             searchResults = result.data
@@ -317,7 +318,7 @@ export default function LoginPage() {
       if ((!searchResults || searchResults.length === 0) && trimmedQuery.length >= 2) {
         console.log('🔍 Improved name search:', trimmedQuery)
         try {
-          const response = await fetch(`https://vichaar-kappa.vercel.app/api/search-students?q=${encodeURIComponent(trimmedQuery)}&type=name`)
+          const response = await fetch(`${BACKEND_BASE_URL}/search-students?q=${encodeURIComponent(trimmedQuery)}&type=name`)
           const result = await response.json()
           if (result.success && result.data && result.data.length > 0) {
             searchResults = result.data
@@ -335,7 +336,7 @@ export default function LoginPage() {
       if (!searchResults || searchResults.length === 0) {
         console.log('🔍 Broad search with filtering:', trimmedQuery)
         try {
-          const response = await fetch(`https://vichaar-kappa.vercel.app/api/search-students?q=${encodeURIComponent(trimmedQuery)}&type=broad`)
+          const response = await fetch(`${BACKEND_BASE_URL}/search-students?q=${encodeURIComponent(trimmedQuery)}&type=broad`)
           const result = await response.json()
           if (result.success && result.data && result.data.length > 0) {
             // Filter results to prioritize better matches

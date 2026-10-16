@@ -1,0 +1,17 @@
+# Database backups & local databases
+*.backup*
+*.backup_vichaar
+db_cluster*
+*.db
+*.sqlite3
+
+# Dependencies & Build artifacts
+node_modules
+dist
+build
+.git
+.vercel
+
+# Environment files
+.env
+.env.*

@@ -4,6 +4,7 @@ import requests
 import json
 import sqlite3
 import os
+import re
 from datetime import datetime, timedelta
 import hashlib
 import pickle
@@ -11,8 +12,10 @@ import pickle
 app = Flask(__name__)
 CORS(app, 
      origins=[
-         r"https://.*\.netlify\.app",
-         "https://vichaar-kappa.vercel.app",
+         "https://kmit-vichaar.netlify.app",
+         re.compile(r"^https://.*\.netlify\.app$"),
+         re.compile(r"^https://.*\.vercel\.app$"),
+         "https://vichaar-nine.vercel.app",
          "https://vichaar-g05ubfbf0-kalki2898ads-projects.vercel.app",
          "http://localhost:3000",
          "http://localhost:3001",

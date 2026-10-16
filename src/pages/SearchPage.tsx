@@ -6,6 +6,7 @@ import {
   Calendar, BarChart3, Clock, Users, QrCode
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { BACKEND_BASE_URL } from '@/lib/api'
 
 interface StudentSearchResult {
   kmit_id: number
@@ -60,7 +61,7 @@ export default function SearchPage() {
     setHasSearched(true)
 
     try {
-      const response = await fetch(`http://localhost:5000/api/search-students?q=${encodeURIComponent(searchQuery.trim())}`)
+      const response = await fetch(`${BACKEND_BASE_URL}/search-students?q=${encodeURIComponent(searchQuery.trim())}`)
       const data = await response.json()
 
       if (data.success) {
