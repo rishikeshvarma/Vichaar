@@ -11,10 +11,13 @@ import pickle
 app = Flask(__name__)
 CORS(app, 
      origins=[
+         r"https://.*\.netlify\.app",
          "https://vichaar-kappa.vercel.app",
          "https://vichaar-g05ubfbf0-kalki2898ads-projects.vercel.app",
          "http://localhost:3000",
-         "http://localhost:3001"
+         "http://localhost:3001",
+         "http://localhost:5173",
+         "http://localhost:8888"
      ],
      methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
@@ -189,8 +192,9 @@ def clear_cache():
 @app.route('/<path:path>', methods=['OPTIONS'])
 def handle_options(path):
     """Handle OPTIONS requests for CORS preflight"""
+    origin = request.headers.get('Origin', '*')
     response = jsonify({'status': 'ok'})
-    response.headers.add('Access-Control-Allow-Origin', 'https://vichaar-kappa.vercel.app')
+    response.headers.add('Access-Control-Allow-Origin', origin)
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
     response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
     return response
