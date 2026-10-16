@@ -131,8 +131,8 @@ import os
 from supabase import create_client, Client
 
 # Supabase configuration
-SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://aqjplgfghbvwwhwvqzjl.supabase.co')
-SUPABASE_KEY = os.environ.get('SUPABASE_KEY', 'your-supabase-anon-key')
+SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://kpugoanyzhkjceuzcbdr.supabase.co')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY', os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_bodWYAghPebCI3ipYu9AQA_kEPwtx4f'))
 
 # Initialize Supabase client
 try:
