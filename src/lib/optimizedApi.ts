@@ -55,11 +55,20 @@ class OptimizedAPIClient {
         })
       });
 
-      if (response.success && response.data?.login) {
-        // Store tokens
-        localStorage.setItem('kmit_access_token', response.data.login.access_token);
-        localStorage.setItem('kmit_refresh_token', response.data.login.refresh_token);
-        localStorage.setItem('kmit_student_id', response.data.login.sub);
+      if (response.success && response.data) {
+        const loginData = response.data.login || response.data;
+        const accessToken = loginData.access_token;
+        const refreshToken = loginData.refresh_token || 'no-refresh-token';
+        const studentId = loginData.sub || '';
+        
+        if (accessToken) {
+          const tokenExpiry = Date.now() + (8 * 60 * 60 * 1000);
+          localStorage.setItem('kmit_access_token', accessToken);
+          localStorage.setItem('kmit_refresh_token', refreshToken);
+          localStorage.setItem('kmit_student_id', String(studentId));
+          localStorage.setItem('kmit_token_expiry', String(tokenExpiry));
+          console.log('✅ Tokens stored successfully in localStorage');
+        }
       }
 
       return response;

@@ -93,7 +93,7 @@ class KMITVichaarAPI {
   }
 
   // Save tokens to localStorage
-  private saveTokens(accessToken: string, refreshToken: string, studentId?: number) {
+  public saveTokens(accessToken: string, refreshToken: string, studentId?: number) {
     // If studentId is not provided, try to extract it from the JWT
     if (!studentId || studentId === 0) {
       const decoded = this.decodeJWT(accessToken)

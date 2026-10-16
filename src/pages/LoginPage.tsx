@@ -5,7 +5,7 @@ import { GraduationCap, Moon, Sun, Search, User, Hash, Eye, ArrowRight, Smartpho
 import toast from 'react-hot-toast'
 import { supabaseDB } from '@/lib/supabase'
 import { optimizedApiClient } from '@/lib/optimizedApi'
-import { BACKEND_BASE_URL } from '@/lib/api'
+import apiClient, { BACKEND_BASE_URL } from '@/lib/api'
 
 // TypeScript declarations for hCaptcha (same as register page)
 declare global {
@@ -137,11 +137,17 @@ export default function LoginPage() {
         // Login successful with comprehensive data
         console.log('✅ Auto-login successful!')
         
-        // Store tokens from the optimized response
-        if (result.data?.login) {
-          localStorage.setItem('kmit_access_token', result.data.login.access_token)
-          localStorage.setItem('kmit_refresh_token', result.data.login.refresh_token)
-          localStorage.setItem('kmit_student_id', result.data.login.sub?.toString() || '')
+        // Store tokens from the login response
+        if (result.data) {
+          const loginData = result.data.login || result.data
+          const accessToken = loginData.access_token
+          const refreshToken = loginData.refresh_token || 'no-refresh-token'
+          const studentId = parseInt(loginData.sub?.toString() || '0', 10)
+          
+          if (accessToken) {
+            apiClient.saveTokens(accessToken, refreshToken, studentId)
+            console.log('✅ Tokens saved via apiClient.saveTokens')
+          }
         }
         
         // Store current student profile with mobile number
