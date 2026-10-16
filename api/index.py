@@ -483,6 +483,42 @@ def login_with_token_direct():
             "error": f"Server error: {str(e)}"
         }), 500
 
+@app.route('/api/logout', methods=['POST'])
+def proxy_logout():
+    """Proxy logout to KMIT API"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        data = request.get_json(silent=True) or {}
+        refresh_token = data.get('refresh_token') or ''
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
+            'Origin': 'https://kmit.teleuniv.in',
+            'Referer': 'https://kmit.teleuniv.in/'
+        }
+        if auth_header:
+            headers['Authorization'] = auth_header
+            
+        try:
+            resp = requests.post(
+                f"{KMIT_API_BASE}/auth/logout",
+                json={"refresh_token": refresh_token},
+                headers=headers,
+                timeout=10
+            )
+            print(f"KMIT logout status: {resp.status_code}")
+        except Exception as kmit_err:
+            print(f"KMIT logout request error: {kmit_err}")
+            
+        return jsonify({
+            "success": True,
+            "message": "Logged out successfully"
+        })
+    except Exception as e:
+        print(f"Logout error: {e}")
+        return jsonify({"success": True, "message": "Logged out locally"})
+
 @app.route('/api/attendance', methods=['GET'])
 def get_attendance():
     try:

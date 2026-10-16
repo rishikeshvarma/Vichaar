@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { optimizedApiClient } from '@/lib/optimizedApi'
-import { StudentData } from '@/lib/api'
+import apiClient, { StudentData } from '@/lib/api'
 import { supabaseDB } from '@/lib/supabase'
 
 // Helper function to convert numbers to ordinal format
@@ -618,15 +618,29 @@ export default function DashboardPage() {
 
 
 
-  const handleBack = () => {
+  const handleBack = async () => {
     console.log('🚪 Back to Search clicked: logging out and clearing student session & caches...')
     try {
-      logout()
+      if (typeof logout === 'function') {
+        logout()
+      }
     } catch (e) {
       console.warn('AuthContext logout error:', e)
     }
-    apiClient.logout()
-    optimizedApiClient.logout()
+    try {
+      if (typeof apiClient !== 'undefined' && apiClient?.logout) {
+        await apiClient.logout()
+      }
+    } catch (e) {
+      console.warn('apiClient logout error:', e)
+    }
+    try {
+      if (typeof optimizedApiClient !== 'undefined' && optimizedApiClient?.logout) {
+        await optimizedApiClient.logout()
+      }
+    } catch (e) {
+      console.warn('optimizedApiClient logout error:', e)
+    }
     localStorage.removeItem('currentStudent')
     localStorage.removeItem('currentTokens')
     localStorage.removeItem('kmit_access_token')

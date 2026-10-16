@@ -447,7 +447,24 @@ class OptimizedAPIClient {
   }
 
   // 🎯 Logout and clear all tokens & caches
-  logout(): void {
+  async logout(): Promise<void> {
+    const accessToken = localStorage.getItem('kmit_access_token');
+    const refreshToken = localStorage.getItem('kmit_refresh_token') || '';
+    
+    if (accessToken) {
+      try {
+        await this.makeRequest('/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({ refresh_token: refreshToken })
+        }).catch(err => console.warn('Remote logout failed (safe to ignore):', err));
+      } catch (e) {
+        // Safe to ignore network error on logout
+      }
+    }
+
     this.clearCaches();
     localStorage.removeItem('kmit_access_token');
     localStorage.removeItem('kmit_refresh_token');

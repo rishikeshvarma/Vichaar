@@ -599,7 +599,18 @@ class KMITVichaarAPI {
   }
 
   // Logout
-  logout() {
+  async logout() {
+    const token = this.accessToken || localStorage.getItem('kmit_access_token')
+    const refreshToken = this.refreshToken || localStorage.getItem('kmit_refresh_token') || ''
+    if (token) {
+      try {
+        await backendClient.post('/logout', { refresh_token: refreshToken }, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(err => console.warn('Backend logout notice failed:', err))
+      } catch (e) {
+        // Safe to ignore network errors on logout
+      }
+    }
     this.clearTokens()
     try {
       clearAllCaches()
