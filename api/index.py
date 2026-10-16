@@ -130,9 +130,9 @@ print("🚀 Cache cleanup thread started")
 import os
 from supabase import create_client, Client
 
-# Supabase configuration
-SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://kpugoanyzhkjceuzcbdr.supabase.co')
-SUPABASE_KEY = os.environ.get('SUPABASE_KEY', os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_bodWYAghPebCI3ipYu9AQA_kEPwtx4f'))
+# Supabase configuration (loaded securely from environment variables)
+SUPABASE_URL = os.environ.get('SUPABASE_URL') or os.environ.get('VITE_SUPABASE_URL', '')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY') or os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY') or os.environ.get('VITE_SUPABASE_ANON_KEY', '')
 
 # Initialize Supabase client
 try:

@@ -6,6 +6,7 @@
 [build.environment]
   NODE_VERSION = "20"
   PYTHON_VERSION = "3.10"
+  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_PUBLISHABLE_KEY,VITE_SUPABASE_ANON_KEY,VITE_SUPABASE_URL,SUPABASE_KEY,SUPABASE_URL"
 
 # Forward API requests to the Python Netlify serverless function
 [[redirects]]
