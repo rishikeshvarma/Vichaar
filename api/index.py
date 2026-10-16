@@ -147,12 +147,27 @@ def get_supabase_client():
         ''
     ).strip().strip("'\"")
     
-    key = (
-        os.environ.get('SUPABASE_KEY') or 
-        os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY') or 
-        os.environ.get('VITE_SUPABASE_ANON_KEY') or 
-        ''
-    ).strip().strip("'\"")
+    # Find candidate keys from environment
+    candidates = [
+        ("VITE_SUPABASE_ANON_KEY", os.environ.get('VITE_SUPABASE_ANON_KEY')),
+        ("SUPABASE_ANON_KEY", os.environ.get('SUPABASE_ANON_KEY')),
+        ("SUPABASE_SERVICE_ROLE_KEY", os.environ.get('SUPABASE_SERVICE_ROLE_KEY')),
+        ("SUPABASE_KEY", os.environ.get('SUPABASE_KEY')),
+        ("VITE_SUPABASE_PUBLISHABLE_KEY", os.environ.get('VITE_SUPABASE_PUBLISHABLE_KEY')),
+    ]
+    
+    # Clean candidate values
+    cleaned = [(name, (val or '').strip().strip("'\"")) for name, val in candidates if val]
+    
+    # Prefer JWT keys (starts with eyJ) which Supabase requires
+    jwt_candidates = [(name, val) for name, val in cleaned if val.startswith('eyJ')]
+    
+    if jwt_candidates:
+        selected_name, key = jwt_candidates[0]
+    elif cleaned:
+        selected_name, key = cleaned[0]
+    else:
+        selected_name, key = "NONE", ""
     
     if not url or not key:
         env_keys = [k for k in os.environ.keys() if 'SUPABASE' in k]
@@ -164,10 +179,10 @@ def get_supabase_client():
         from supabase import create_client
         _supabase_client = create_client(url, key)
         _supabase_error = None
-        print("✅ Supabase client initialized successfully!")
+        print(f"✅ Supabase client initialized successfully with {selected_name}!")
         return _supabase_client
     except Exception as e:
-        _supabase_error = f"create_client failed: {type(e).__name__}: {str(e)}"
+        _supabase_error = f"create_client failed with {selected_name}: {type(e).__name__}: {str(e)} [url={url[:18]}... len={len(url)}, key_prefix={key[:6]}... len={len(key)}]"
         print(f"❌ {_supabase_error}")
         return None
 
@@ -708,19 +723,31 @@ def search_students():
         try:
             # Different search strategies based on type
             if search_type == 'exact':
-                # Exact hall ticket match
-                response = supabase_client.table('student_profiles').select('*').eq('hall_ticket', query).limit(10).execute()
+                # Exact hall ticket match (case-insensitive)
+                response = supabase_client.table('student_profiles').select('*').ilike('hall_ticket', query).limit(10).execute()
             elif search_type == 'partial':
                 # Partial hall ticket match
                 response = supabase_client.table('student_profiles').select('*').ilike('hall_ticket', f'%{query}%').limit(10).execute()
             elif search_type == 'name':
-                # Name search
-                query_no_spaces = query.replace(' ', '')
-                response = supabase_client.table('student_profiles').select('*').or_(f'name.ilike.%{query}%,name.ilike.%{query_no_spaces}%').limit(10).execute()
+                # Name search with fallback
+                builder = supabase_client.table('student_profiles').select('*')
+                if hasattr(builder, 'or_'):
+                    query_no_spaces = query.replace(' ', '')
+                    response = builder.or_(f'name.ilike.%{query}%,name.ilike.%{query_no_spaces}%').limit(10).execute()
+                else:
+                    response = builder.ilike('name', f'%{query}%').limit(10).execute()
             else:
-                # Broad search (default)
-                query_no_spaces = query.replace(' ', '')
-                response = supabase_client.table('student_profiles').select('*').or_(f'name.ilike.%{query}%,hall_ticket.ilike.%{query}%,roll_number.ilike.%{query}%').limit(20).execute()
+                # Broad search (default) with fallback
+                builder = supabase_client.table('student_profiles').select('*')
+                if hasattr(builder, 'or_'):
+                    query_no_spaces = query.replace(' ', '')
+                    response = builder.or_(f'name.ilike.%{query}%,hall_ticket.ilike.%{query}%,roll_number.ilike.%{query}%').limit(20).execute()
+                else:
+                    ht_resp = supabase_client.table('student_profiles').select('*').ilike('hall_ticket', f'%{query}%').limit(10).execute()
+                    if hasattr(ht_resp, 'data') and ht_resp.data:
+                        response = ht_resp
+                    else:
+                        response = supabase_client.table('student_profiles').select('*').ilike('name', f'%{query}%').limit(20).execute()
             
             if hasattr(response, 'data'):
                 students = response.data
@@ -1143,12 +1170,13 @@ def test_supabase():
                 "error": f"Supabase connection failed: {_supabase_error}"
             }), 500
         
-        # Test basic connection by getting count of student_profiles
-        response = supabase_client.table('student_profiles').select('*', count='exact').execute()
+        # Test basic connection by getting sample student_profiles
+        response = supabase_client.table('student_profiles').select('id, name, hall_ticket').limit(5).execute()
         
         return jsonify({
             "success": True,
             "database_status": "Connected to Supabase",
+            "sample_profiles": response.data if hasattr(response, 'data') else [],
             "total_students": len(response.data) if hasattr(response, 'data') else 0,
             "timestamp": datetime.now().isoformat()
         })
