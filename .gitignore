@@ -32,6 +32,8 @@ venv.bak/
 # Database
 *.db
 *.sqlite3
+*.backup*
+*.backup_vichaar
 
 # IDE
 .vscode/
